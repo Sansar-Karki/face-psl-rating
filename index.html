@@ -225,7 +225,7 @@
         <div class="header">
             <h1>PSL Face Rating</h1>
             <p>Upload a photo to get your PSL rating based on facial structure</p>
-            <div class="status-badge" id="modelStatus">⏳ Initializing...</div>
+            <div class="status-badge" id="modelStatus">⏳ Loading models...</div>
         </div>
 
         <div class="upload-area" onclick="document.getElementById('photoInput').click()">
@@ -269,36 +269,39 @@
     <script>
         let currentImage = null;
         let displaySize = null;
-        const API_URL = 'https://api.facedefect.io/detect';
+        let modelsLoaded = false;
+        const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
 
-        async function initialize() {
+        // Pre-load models
+        window.addEventListener('load', async function() {
+            await loadModels();
+        });
+
+        async function loadModels() {
             const statusBadge = document.getElementById('modelStatus');
-            statusBadge.textContent = '⏳ Checking API...';
+            statusBadge.textContent = '⏳ Loading models...';
             statusBadge.className = 'status-badge loading';
 
             try {
-                // Check if API is accessible
-                const response = await fetch(API_URL, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        image: 'data:image/jpeg;base64,placeholder'
-                    })
-                });
+                console.log('Loading face-api from:', MODEL_URL);
 
-                if (response.ok) {
-                    statusBadge.textContent = '✅ API Ready';
-                    statusBadge.className = 'status-badge ready';
-                } else {
-                    throw new Error('API returned error: ' + response.status);
-                }
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                console.log('TinyFaceDetector loaded');
+
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+                console.log('FaceLandmark68Net loaded');
+
+                await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+                console.log('FaceRecognitionNet loaded');
+
+                modelsLoaded = true;
+                statusBadge.textContent = '✅ Models loaded!';
+                statusBadge.className = 'status-badge ready';
             } catch (error) {
-                console.error('API Error:', error);
-                statusBadge.textContent = '❌ API Failed';
+                console.error('Error loading models:', error);
+                statusBadge.textContent = '❌ Failed to load';
                 statusBadge.className = 'status-badge error';
-                document.getElementById('error').textContent = 'API not available. Try again later.';
+                document.getElementById('error').textContent = 'Failed to load face-api models. Check your internet connection.';
             }
         }
 
@@ -310,9 +313,8 @@
             document.getElementById('error').textContent = '';
             document.getElementById('timeoutWarning').textContent = '';
 
-            const statusBadge = document.getElementById('modelStatus');
-            if (statusBadge.className.includes('error')) {
-                document.getElementById('error').textContent = 'API is not available. Please try again later.';
+            if (!modelsLoaded) {
+                document.getElementById('error').textContent = 'Models still loading... Please wait.';
                 return;
             }
 
@@ -363,12 +365,13 @@
             const startTime = performance.now();
 
             setTimeout(() => {
-                if (performance.now() - startTime < 35000) {
-                    document.getElementById('timeoutWarning').textContent = 'Taking too long. The API might be slow.';
+                if (performance.now() - startTime < 20000) {
+                    console.error('Analysis timeout');
+                    document.getElementById('timeoutWarning').textContent = 'Taking too long. Try a smaller photo.';
                     document.getElementById('loading').classList.remove('active');
                     document.getElementById('buttonContainer').style.display = 'block';
                 }
-            }, 35000);
+            }, 20000);
 
             try {
                 const img = new Image();
@@ -378,7 +381,7 @@
                     console.log('Image loaded, dimensions:', img.width, 'x', img.height);
 
                     // Resize if too large
-                    const maxSize = 800;
+                    const maxSize = 640;
                     let width = img.width;
                     let height = img.height;
 
@@ -400,29 +403,16 @@
                     resizedCtx.drawImage(img, 0, 0, width, height);
 
                     document.getElementById('status').textContent = 'Detecting face...';
-                    console.log('Sending to API...');
+                    console.log('Starting face detection...');
 
-                    const response = await fetch(API_URL, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            image: resizedCanvas.toDataURL('image/jpeg', 0.8)
-                        })
-                    });
+                    const detections = await faceapi.detectAllFaces(resizedCanvas, new faceapi.TinyFaceDetectorOptions())
+                        .withFaceLandmarks();
 
-                    if (!response.ok) {
-                        throw new Error('API error: ' + response.status);
-                    }
-
-                    const data = await response.json();
                     const detectionTime = performance.now();
-
                     console.log('Detection took:', (detectionTime - startTime).toFixed(0), 'ms');
-                    console.log('API response:', data);
+                    console.log('Detections:', detections.length);
 
-                    if (!data.faces || data.faces.length === 0) {
+                    if (detections.length === 0) {
                         document.getElementById('status').textContent = 'No face detected';
                         document.getElementById('error').textContent = 'No face detected in the photo. Please upload a clearer photo.';
                         document.getElementById('loading').classList.remove('active');
@@ -430,38 +420,18 @@
                         return;
                     }
 
-                    const face = data.faces[0];
-                    console.log('Face detected:', face);
+                    console.log('Face detected, calculating metrics...');
+                    const landmarks = detections[0].landmarks;
 
-                    // Calculate metrics from API response
-                    const metrics = calculatePSLMetricsFromAPI(face, width, height);
-
-                    // Draw simple face outline
                     const canvas = document.getElementById('canvas');
                     const ctx = canvas.getContext('2d');
 
                     ctx.drawImage(img, 0, 0);
 
-                    if (face.boundingBox) {
-                        const scale = img.width / width;
-                        const box = face.boundingBox;
-                        const scaledBox = {
-                            left: box.left * scale,
-                            top: box.top * scale,
-                            width: box.width * scale,
-                            height: box.height * scale
-                        };
+                    const detectionsWithSize = faceapi.resizeResults(detections, displaySize);
+                    faceapi.draw.drawFaceLandmarks(canvas, detectionsWithSize);
 
-                        ctx.strokeStyle = '#00ff88';
-                        ctx.lineWidth = 3;
-                        ctx.strokeRect(
-                            scaledBox.left,
-                            scaledBox.top,
-                            scaledBox.width,
-                            scaledBox.height
-                        );
-                    }
-
+                    const metrics = calculatePSLMetrics(landmarks);
                     displayResults(metrics);
 
                     document.getElementById('loading').classList.remove('active');
@@ -471,7 +441,7 @@
                 img.onerror = function(error) {
                     console.error('Image load error:', error);
                     document.getElementById('status').textContent = 'Error loading image';
-                    document.getElementById('error').textContent = 'Error loading image for analysis.';
+                    document.getElementById('error').textContent = 'Error loading image.';
                     document.getElementById('loading').classList.remove('active');
                     document.getElementById('buttonContainer').style.display = 'block';
                 };
@@ -485,53 +455,108 @@
             }
         }
 
-        function calculatePSLMetricsFromAPI(face, originalWidth, originalHeight) {
-            // If API provides face dimensions, use them
-            if (face.boundingBox && face.boundingBox.width > 0 && face.boundingBox.height > 0) {
-                const faceWidth = face.boundingBox.width;
-                const faceHeight = face.boundingBox.height;
-                const faceRatio = faceWidth / faceHeight;
+        function calculatePSLMetrics(landmarks) {
+            const positions = landmarks.positions;
 
-                // Forehead ratio (estimate from top/bottom center)
-                const topY = face.boundingBox.top;
-                const bottomY = face.boundingBox.top + face.boundingBox.height;
-                const foreheadRatio = (topY / bottomY);
-
-                // Jawline ratio (estimate from width)
-                const jawRatio = (face.boundingBox.width / originalWidth);
-
-                // Nose width (estimate from features if available)
-                const noseWidth = (face.boundingBox.width * 0.15);
-
-                // Eye distance (estimate)
-                const eyeDistance = (face.boundingBox.width * 0.2);
-
-                let pslScore = 50;
-
-                // Base score adjustments
-                if (faceRatio > 0.5) pslScore += 3; // More balanced faces
-                if (foreheadRatio > 0.35) pslScore += 2; // Good forehead proportion
-
-                pslScore = Math.max(0, Math.min(100, pslScore));
-
+            if (!Array.isArray(positions)) {
                 return {
-                    score: pslScore,
-                    faceRatio: faceRatio.toFixed(2),
-                    foreheadRatio: foreheadRatio.toFixed(2),
-                    jawRatio: jawRatio.toFixed(2),
-                    noseRatio: (noseWidth / faceWidth).toFixed(2),
-                    eyeDistance: eyeDistance.toFixed(1)
+                    score: 50,
+                    error: 'Invalid landmark data'
                 };
             }
 
-            // Fallback if API doesn't provide dimensions
+            if (positions.length < 68) {
+                return {
+                    score: 50,
+                    error: 'Incomplete face detection'
+                };
+            }
+
+            const getCoord = (point, axis) => {
+                if (!point || typeof point !== 'object') return null;
+                const coord = point[axis];
+                if (typeof coord !== 'number' || isNaN(coord)) return null;
+                return coord;
+            };
+
+            const rightCheek = positions[29];
+            const leftCheek = positions[20];
+            const topOfHead = positions[8];
+            const chin = positions[26];
+
+            const rightX = getCoord(rightCheek, 'x');
+            const leftX = getCoord(leftCheek, 'x');
+            const topY = getCoord(topOfHead, 'y');
+            const chinY = getCoord(chin, 'y');
+
+            if (rightX === null || leftX === null || topY === null || chinY === null) {
+                return {
+                    score: 50,
+                    error: 'Missing coordinate data'
+                };
+            }
+
+            const faceWidth = rightX - leftX;
+            const faceHeight = topY - chinY;
+
+            if (faceWidth <= 0 || faceHeight <= 0) {
+                return {
+                    score: 50,
+                    error: 'Invalid face dimensions'
+                };
+            }
+
+            const foreheadWidth = (getCoord(positions[12], 'x') || 0) - (getCoord(positions[9], 'x') || 0);
+            const jawWidth = (getCoord(positions[14], 'x') || 0) - (getCoord(positions[1], 'x') || 0);
+            const noseWidth = (getCoord(positions[35], 'x') || 0) - (getCoord(positions[31], 'x') || 0);
+            const eyeDistance = (getCoord(positions[39], 'x') || 0) - (getCoord(positions[36], 'x') || 0);
+
+            const faceRatio = faceWidth / faceHeight;
+            const foreheadRatio = foreheadWidth / faceWidth;
+            const jawRatio = jawWidth / faceWidth;
+            const noseRatio = noseWidth / faceWidth;
+
+            let pslScore = 50;
+
+            if (faceRatio > 0.6) {
+                pslScore += 5;
+            } else if (faceRatio < 0.45) {
+                pslScore += 3;
+            }
+
+            if (foreheadRatio > 0.3) {
+                pslScore += 3;
+            } else if (foreheadRatio < 0.25) {
+                pslScore += 2;
+            }
+
+            if (jawRatio > 0.38) {
+                pslScore += 5;
+            } else if (jawRatio < 0.32) {
+                pslScore -= 2;
+            }
+
+            if (noseRatio > 0.08) {
+                pslScore += 3;
+            } else if (noseRatio < 0.06) {
+                pslScore -= 1;
+            }
+
+            if (eyeDistance > faceWidth * 0.18) {
+                pslScore += 2;
+            } else if (eyeDistance < faceWidth * 0.12) {
+                pslScore -= 1;
+            }
+
+            pslScore = Math.max(0, Math.min(100, pslScore));
+
             return {
-                score: 50,
-                faceRatio: 'N/A',
-                foreheadRatio: 'N/A',
-                jawRatio: 'N/A',
-                noseRatio: 'N/A',
-                eyeDistance: 'N/A'
+                score: pslScore,
+                faceRatio: faceRatio.toFixed(2),
+                foreheadRatio: foreheadRatio.toFixed(2),
+                jawRatio: jawRatio.toFixed(2),
+                noseRatio: noseRatio.toFixed(2),
+                eyeDistance: eyeDistance.toFixed(1)
             };
         }
 
@@ -595,9 +620,6 @@
             document.getElementById('error').textContent = '';
             document.getElementById('timeoutWarning').textContent = '';
         }
-
-        // Initialize on load
-        initialize();
     </script>
 </body>
 </html>
