@@ -566,6 +566,8 @@
             } else if (faceRatio < 0.45) {
                 pslScore += 3;
                 console.log('Narrow face bonus: +3');
+            } else {
+                console.log('Average face shape: 0 change');
             }
 
             // Forehead scoring
@@ -575,6 +577,8 @@
             } else if (foreheadRatio < 0.25) {
                 pslScore += 2;
                 console.log('Low forehead bonus: +2');
+            } else {
+                console.log('Average forehead: 0 change');
             }
 
             // Jawline scoring
@@ -584,6 +588,8 @@
             } else if (jawRatio < 0.32) {
                 pslScore -= 2;
                 console.log('Weak jaw penalty: -2');
+            } else {
+                console.log('Average jawline: 0 change');
             }
 
             // Nose scoring
@@ -593,6 +599,8 @@
             } else if (noseRatio < 0.06) {
                 pslScore -= 1;
                 console.log('Small nose penalty: -1');
+            } else {
+                console.log('Average nose: 0 change');
             }
 
             // Eye spacing scoring
@@ -602,12 +610,15 @@
             } else if (eyeDistance < faceWidth * 0.12) {
                 pslScore -= 1;
                 console.log('Close-set eyes penalty: -1');
+            } else {
+                console.log('Average eye spacing: 0 change');
             }
 
             // Apply limits
             pslScore = Math.max(0, Math.min(100, pslScore));
 
             console.log('PSL Score:', pslScore);
+            console.log('=== Calculation Complete ===');
 
             return {
                 score: pslScore,
