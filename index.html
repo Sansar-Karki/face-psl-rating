@@ -272,7 +272,6 @@
         let modelsLoaded = false;
         const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
 
-        // Pre-load models
         window.addEventListener('load', async function() {
             await loadModels();
         });
@@ -283,25 +282,41 @@
             statusBadge.className = 'status-badge loading';
 
             try {
-                console.log('Loading face-api from:', MODEL_URL);
+                console.log('=== Starting model loading ===');
+                console.log('Model URL:', MODEL_URL);
 
+                // Check if faceapi is loaded
+                if (typeof faceapi === 'undefined') {
+                    throw new Error('face-api.js is not loaded. Check your internet connection.');
+                }
+                console.log('face-api.js is loaded');
+
+                console.log('Loading TinyFaceDetector...');
                 await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
-                console.log('TinyFaceDetector loaded');
+                console.log('✅ TinyFaceDetector loaded');
 
+                console.log('Loading FaceLandmark68Net...');
                 await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
-                console.log('FaceLandmark68Net loaded');
+                console.log('✅ FaceLandmark68Net loaded');
 
+                console.log('Loading FaceRecognitionNet...');
                 await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
-                console.log('FaceRecognitionNet loaded');
+                console.log('✅ FaceRecognitionNet loaded');
 
                 modelsLoaded = true;
                 statusBadge.textContent = '✅ Models loaded!';
                 statusBadge.className = 'status-badge ready';
+                console.log('=== Model loading complete ===');
+
             } catch (error) {
-                console.error('Error loading models:', error);
+                console.error('=== ERROR: ===', error);
+                console.error('Error name:', error.name);
+                console.error('Error message:', error.message);
+                console.error('Error stack:', error.stack);
+
                 statusBadge.textContent = '❌ Failed to load';
                 statusBadge.className = 'status-badge error';
-                document.getElementById('error').textContent = 'Failed to load face-api models. Check your internet connection.';
+                document.getElementById('error').textContent = 'Failed to load: ' + error.message;
             }
         }
 
@@ -314,7 +329,7 @@
             document.getElementById('timeoutWarning').textContent = '';
 
             if (!modelsLoaded) {
-                document.getElementById('error').textContent = 'Models still loading... Please wait.';
+                document.getElementById('error').textContent = 'Models still loading... Please wait and refresh the page.';
                 return;
             }
 
