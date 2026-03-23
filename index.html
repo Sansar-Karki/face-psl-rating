@@ -24,7 +24,7 @@
         }
 
         .container {
-            max-width: 600px;
+            max-width: 700px;
             width: 100%;
         }
 
@@ -76,9 +76,17 @@
 
         .image-container img {
             max-width: 100%;
-            max-height: 400px;
+            max-height: 500px;
             border-radius: 10px;
             border: 2px solid #333333;
+            display: block;
+            margin: 0 auto;
+        }
+
+        canvas {
+            display: block;
+            margin: 20px auto;
+            max-width: 100%;
         }
 
         .results {
@@ -157,6 +165,26 @@
             font-size: 0.9em;
         }
 
+        .debug-info {
+            background: #111111;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            font-size: 0.8em;
+            color: #888888;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+
+        .debug-info h4 {
+            color: #ffffff;
+            margin-bottom: 10px;
+        }
+
+        .debug-info p {
+            margin-bottom: 5px;
+        }
+
         .button {
             background: linear-gradient(90deg, #ffffff, #666666);
             border: none;
@@ -196,14 +224,15 @@
             <input type="file" id="photoInput" accept="image/*" onchange="handlePhotoUpload(event)">
         </div>
 
+        <div class="image-container" id="imageContainer" style="display: none;">
+            <img id="uploadedImage" alt="Uploaded photo">
+            <canvas id="canvas"></canvas>
+        </div>
+
         <div class="loading" id="loading">
             <p>📸 Analyzing face...</p>
             <p class="status" id="status">Loading FaceAPI...</p>
             <p class="error" id="error"></p>
-        </div>
-
-        <div class="image-container" id="imageContainer" style="display: none;">
-            <img id="uploadedImage" alt="Uploaded photo">
         </div>
 
         <div class="button-container" id="buttonContainer" style="display: none;">
@@ -229,6 +258,7 @@
 
     <script>
         let currentImage = null;
+        let displaySize = null;
 
         async function handlePhotoUpload(event) {
             const file = event.target.files[0];
@@ -246,12 +276,30 @@
                 document.getElementById('buttonContainer').style.display = 'block';
                 document.getElementById('results').classList.remove('active');
                 document.getElementById('loading').classList.remove('active');
+
+                // Set up canvas
+                setupCanvas();
             };
             reader.onerror = function(error) {
                 console.error('File reader error:', error);
                 document.getElementById('error').textContent = 'Error loading image. Please try again.';
             };
             reader.readAsDataURL(file);
+        }
+
+        function setupCanvas() {
+            const canvas = document.getElementById('canvas');
+            const img = document.getElementById('uploadedImage');
+
+            canvas.width = img.width;
+            canvas.height = img.height;
+            const ctx = canvas.getContext('2d');
+
+            // Draw image on canvas
+            ctx.drawImage(img, 0, 0);
+
+            // Set display size
+            displaySize = new faceapi.WithDimensions(img.width, img.height);
         }
 
         async function analyzeFace() {
@@ -299,6 +347,10 @@
                     console.log('Image loaded for analysis, dimensions:', img.width, 'x', img.height);
                     console.log('Starting face detection...');
 
+                    // Set up display size
+                    displaySize = new faceapi.WithDimensions(img.width, img.height);
+
+                    // Detect faces with landmarks
                     const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions())
                         .withFaceLandmarks();
 
@@ -315,6 +367,17 @@
                     console.log('Face detected, calculating metrics...');
                     const landmarks = detections[0].landmarks;
                     console.log('Landmarks object:', landmarks);
+
+                    // Draw landmarks on canvas
+                    const canvas = document.getElementById('canvas');
+                    const ctx = canvas.getContext('2d');
+
+                    // Draw original image
+                    ctx.drawImage(img, 0, 0);
+
+                    // Draw landmarks
+                    const detectionsWithSize = faceapi.resizeResults(detections, displaySize);
+                    faceapi.draw.drawFaceLandmarks(canvas, detectionsWithSize);
 
                     // Check if landmarks have positions
                     if (!landmarks || !landmarks.positions) {
@@ -388,10 +451,19 @@
                 };
             }
 
-            console.log('Positions[29]:', positions[29]);
-            console.log('Positions[20]:', positions[20]);
-            console.log('Positions[8]:', positions[8]);
-            console.log('Positions[26]:', positions[26]);
+            // Helper function to get coordinate safely
+            const getCoord = (point, axis) => {
+                if (!point || typeof point !== 'object') {
+                    console.error(`Missing point data for landmark index: ${point}`);
+                    return null;
+                }
+                const coord = point[axis];
+                if (typeof coord !== 'number' || isNaN(coord)) {
+                    console.error(`Invalid ${axis} coordinate: ${coord} for landmark index: ${point}`);
+                    return null;
+                }
+                return coord;
+            };
 
             // Face shape analysis
             const rightCheek = positions[29];
@@ -402,39 +474,69 @@
             console.log('Right cheek:', rightCheek, 'Left cheek:', leftCheek);
             console.log('Top of head:', topOfHead, 'Chin:', chin);
 
-            // Check if positions have x, y coordinates
-            if (!rightCheek || !leftCheek || !topOfHead || !chin) {
-                console.error('Missing position data');
+            const rightX = getCoord(rightCheek, 'x');
+            const leftX = getCoord(leftCheek, 'x');
+            const topY = getCoord(topOfHead, 'y');
+            const chinY = getCoord(chin, 'y');
+
+            console.log('Right X:', rightX, 'Left X:', leftX);
+            console.log('Top Y:', topY, 'Chin Y:', chinY);
+
+            // Check if coordinates are valid
+            if (rightX === null || leftX === null || topY === null || chinY === null) {
+                console.error('Missing coordinate data');
                 return {
-                    score: 0,
-                    error: 'Missing position data'
+                    score: 50,
+                    error: 'Missing coordinate data',
+                    metrics: {
+                        faceRatio: 'N/A',
+                        foreheadRatio: 'N/A',
+                        jawRatio: 'N/A',
+                        noseRatio: 'N/A',
+                        eyeDistance: 'N/A'
+                    }
                 };
             }
 
-            const faceWidth = rightCheek.x - leftCheek.x;
-            const faceHeight = topOfHead.y - chin.y;
+            const faceWidth = rightX - leftX;
+            const faceHeight = topY - chinY;
 
             console.log('Face width:', faceWidth, 'Face height:', faceHeight);
+
+            if (faceWidth <= 0 || faceHeight <= 0) {
+                console.error('Invalid face dimensions:', faceWidth, faceHeight);
+                return {
+                    score: 50,
+                    error: 'Invalid face dimensions',
+                    metrics: {
+                        faceRatio: 'N/A',
+                        foreheadRatio: 'N/A',
+                        jawRatio: 'N/A',
+                        noseRatio: 'N/A',
+                        eyeDistance: 'N/A'
+                    }
+                };
+            }
 
             // Forehead width
             const foreheadLeft = positions[9];
             const foreheadRight = positions[12];
-            const foreheadWidth = foreheadRight.x - foreheadLeft.x;
+            const foreheadWidth = (getCoord(foreheadRight, 'x') || 0) - (getCoord(foreheadLeft, 'x') || 0);
 
             // Jawline width
             const jawLeft = positions[1];
             const jawRight = positions[14];
-            const jawWidth = jawRight.x - jawLeft.x;
+            const jawWidth = (getCoord(jawRight, 'x') || 0) - (getCoord(jawLeft, 'x') || 0);
 
             // Nose width
             const noseLeft = positions[31];
             const noseRight = positions[35];
-            const noseWidth = noseRight.x - noseLeft.x;
+            const noseWidth = (getCoord(noseRight, 'x') || 0) - (getCoord(noseLeft, 'x') || 0);
 
             // Eye distance
             const eyeLeft = positions[36];
             const eyeRight = positions[39];
-            const eyeDistance = eyeRight.x - eyeLeft.x;
+            const eyeDistance = (getCoord(eyeRight, 'x') || 0) - (getCoord(eyeLeft, 'x') || 0);
 
             console.log('Face width:', faceWidth, 'Face height:', faceHeight);
             console.log('Forehead width:', foreheadWidth);
@@ -545,23 +647,23 @@
             metricsDiv.innerHTML = `
                 <div class="metric">
                     <span class="metric-label">Face Shape Ratio</span>
-                    <span class="metric-value">${metrics.faceRatio}</span>
+                    <span class="metric-value">${metrics.faceRatio || 'N/A'}</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Forehead Width</span>
-                    <span class="metric-value">${metrics.foreheadRatio}</span>
+                    <span class="metric-value">${metrics.foreheadRatio || 'N/A'}</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Jawline Width</span>
-                    <span class="metric-value">${metrics.jawRatio}</span>
+                    <span class="metric-value">${metrics.jawRatio || 'N/A'}</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Nose Width</span>
-                    <span class="metric-value">${metrics.noseRatio}</span>
+                    <span class="metric-value">${metrics.noseRatio || 'N/A'}</span>
                 </div>
                 <div class="metric">
                     <span class="metric-label">Eye Distance</span>
-                    <span class="metric-value">${metrics.eyeDistance}</span>
+                    <span class="metric-value">${metrics.eyeDistance || 'N/A'}</span>
                 </div>
             `;
 
@@ -570,6 +672,10 @@
 
         function reset() {
             currentImage = null;
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
             document.getElementById('imageContainer').style.display = 'none';
             document.getElementById('buttonContainer').style.display = 'block';
             document.getElementById('results').classList.remove('active');
