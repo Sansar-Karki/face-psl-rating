@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PSL Face Rating App</title>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #000000;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            color: #ffffff;
+        }
+
+        .container {
+            max-width: 600px;
+            width: 100%;
+        }
+
+        .header {
+            text-align: center;
+            padding: 40px 20px;
+            border-bottom: 1px solid #333333;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            font-weight: 800;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #888888;
+            font-size: 1.1em;
+        }
+
+        .upload-area {
+            border: 2px dashed #333333;
+            border-radius: 10px;
+            padding: 50px 20px;
+            text-align: center;
+            margin: 30px 0;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .upload-area:hover {
+            border-color: #ffffff;
+            background: #111111;
+        }
+
+        .upload-area p {
+            color: #888888;
+            font-size: 1.1em;
+        }
+
+        .upload-area input {
+            display: none;
+        }
+
+        .image-container {
+            margin: 30px 0;
+            text-align: center;
+        }
+
+        .image-container img {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 10px;
+            border: 2px solid #333333;
+        }
+
+        .results {
+            margin-top: 30px;
+            border: 1px solid #333333;
+            border-radius: 10px;
+            padding: 25px;
+            display: none;
+        }
+
+        .results.active {
+            display: block;
+        }
+
+        .psl-score {
+            font-size: 4em;
+            font-weight: 800;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .psl-score.high {
+            color: #00ff88;
+        }
+
+        .psl-score.medium {
+            color: #ffff00;
+        }
+
+        .psl-score.low {
+            color: #ff4444;
+        }
+
+        .metrics {
+            margin-top: 20px;
+        }
+
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #333333;
+        }
+
+        .metric:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            color: #888888;
+        }
+
+        .metric-value {
+            font-weight: 600;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            display: none;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .loading p {
+            color: #888888;
+        }
+
+        .button {
+            background: linear-gradient(90deg, #ffffff, #666666);
+            border: none;
+            color: #000000;
+            padding: 12px 30px;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 1em;
+            transition: all 0.3s;
+        }
+
+        .button:hover {
+            transform: scale(1.02);
+        }
+
+        .button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .button-container {
+            text-align: center;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>PSL Face Rating</h1>
+            <p>Upload a photo to get your PSL rating based on facial structure</p>
+        </div>
+
+        <div class="upload-area" onclick="document.getElementById('photoInput').click()">
+            <p>📷 Click to upload photo</p>
+            <input type="file" id="photoInput" accept="image/*" onchange="handlePhotoUpload(event)">
+        </div>
+
+        <div class="loading" id="loading">
+            <p>📸 Analyzing face...</p>
+        </div>
+
+        <div class="image-container" id="imageContainer" style="display: none;">
+            <img id="uploadedImage" alt="Uploaded photo">
+        </div>
+
+        <div class="button-container" id="buttonContainer" style="display: none;">
+            <button class="button" onclick="analyzeFace()">Analyze Face</button>
+        </div>
+
+        <div class="results" id="results">
+            <div style="text-align: center;">
+                <p style="color: #888888; font-size: 0.9em;">Your PSL Rating</p>
+                <div class="psl-score" id="pslScore">0</div>
+                <p id="pslLabel" style="color: #888888;"></p>
+            </div>
+
+            <div class="metrics" id="metrics">
+                <!-- Metrics will be inserted here -->
+            </div>
+
+            <div class="button-container" style="margin-top: 30px;">
+                <button class="button" onclick="reset()">Analyze Another</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentImage = null;
+
+        async function handlePhotoUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                currentImage = e.target.result;
+                document.getElementById('uploadedImage').src = currentImage;
+                document.getElementById('imageContainer').style.display = 'block';
+                document.getElementById('buttonContainer').style.display = 'block';
+                document.getElementById('results').classList.remove('active');
+                document.getElementById('loading').classList.remove('active');
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function analyzeFace() {
+            if (!currentImage) return;
+
+            document.getElementById('loading').classList.add('active');
+            document.getElementById('buttonContainer').style.display = 'none';
+
+            try {
+                // Load FaceAPI models
+                await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+                await faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+                await faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+
+                // Analyze face
+                const img = new Image();
+                img.src = currentImage;
+
+                const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions())
+                    .withFaceLandmarks();
+
+                if (detections.length === 0) {
+                    alert('No face detected in the photo. Please upload a clear photo with a visible face.');
+                    document.getElementById('loading').classList.remove('active');
+                    document.getElementById('buttonContainer').style.display = 'block';
+                    return;
+                }
+
+                const landmarks = detections[0].landmarks;
+
+                // Calculate metrics
+                const metrics = calculatePSLMetrics(landmarks);
+
+                // Display results
+                displayResults(metrics);
+
+                document.getElementById('loading').classList.remove('active');
+
+            } catch (error) {
+                console.error('Error analyzing face:', error);
+                alert('Error analyzing face. Please try again.');
+                document.getElementById('loading').classList.remove('active');
+                document.getElementById('buttonContainer').style.display = 'block';
+            }
+        }
+
+        function calculatePSLMetrics(landmarks) {
+            const positions = landmarks.positions;
+
+            // Face shape analysis
+            const faceWidth = positions[29][0] - positions[20][0]; // Left cheek to right cheek
+            const faceHeight = positions[8][1] - positions[26][1]; // Top of head to chin
+
+            // Forehead width
+            const foreheadWidth = positions[9][0] - positions[12][0];
+
+            // Jawline width
+            const jawWidth = positions[1][0] - positions[14][0];
+
+            // Nose width
+            const noseWidth = positions[31][0] - positions[35][0];
+
+            // Eye distance
+            const eyeDistance = positions[36][0] - positions[39][0];
+
+            // Calculate shape metrics
+            const faceRatio = faceWidth / faceHeight;
+            const foreheadRatio = foreheadWidth / faceWidth;
+            const jawRatio = jawWidth / faceWidth;
+            const noseRatio = noseWidth / faceWidth;
+
+            // PSL Score calculation (0-100)
+            let pslScore = 50;
+
+            // Face shape scoring
+            if (faceRatio > 0.6) pslScore += 5; // Wide face
+            else if (faceRatio < 0.45) pslScore += 3; // Narrow face
+
+            // Forehead scoring
+            if (foreheadRatio > 0.3) pslScore += 3; // High forehead
+            else if (foreheadRatio < 0.25) pslScore += 2; // Low forehead
+
+            // Jawline scoring
+            if (jawRatio > 0.38) pslScore += 5; // Defined jaw
+            else if (jawRatio < 0.32) pslScore -= 2; // Weak jaw
+
+            // Nose scoring
+            if (noseRatio > 0.08) pslScore += 3; // Defined nose
+            else if (noseRatio < 0.06) pslScore -= 1; // Small nose
+
+            // Eye spacing scoring
+            if (eyeDistance > faceWidth * 0.18) pslScore += 2; // Wide eyes
+            else if (eyeDistance < faceWidth * 0.12) pslScore -= 1; // Close set
+
+            // Apply limits
+            pslScore = Math.max(0, Math.min(100, pslScore));
+
+            return {
+                score: pslScore,
+                faceRatio: faceRatio.toFixed(2),
+                foreheadRatio: foreheadRatio.toFixed(2),
+                jawRatio: jawRatio.toFixed(2),
+                noseRatio: noseRatio.toFixed(2),
+                eyeDistance: eyeDistance.toFixed(1),
+                faceWidth: faceWidth.toFixed(0),
+                faceHeight: faceHeight.toFixed(0)
+            };
+        }
+
+        function displayResults(metrics) {
+            const resultsDiv = document.getElementById('results');
+            const pslScoreDiv = document.getElementById('pslScore');
+            const pslLabelDiv = document.getElementById('pslLabel');
+            const metricsDiv = document.getElementById('metrics');
+
+            // Set score
+            pslScoreDiv.textContent = metrics.score;
+
+            // Set color based on score
+            pslScoreDiv.className = 'psl-score';
+            if (metrics.score >= 80) {
+                pslScoreDiv.classList.add('high');
+                pslLabelDiv.textContent = 'High PSL Rating!';
+            } else if (metrics.score >= 60) {
+                pslScoreDiv.classList.add('medium');
+                pslLabelDiv.textContent = 'Good PSL Rating';
+            } else {
+                pslScoreDiv.classList.add('low');
+                pslLabelDiv.textContent = 'Average PSL Rating';
+            }
+
+            // Add metrics
+            metricsDiv.innerHTML = `
+                <div class="metric">
+                    <span class="metric-label">Face Shape Ratio</span>
+                    <span class="metric-value">${metrics.faceRatio}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Forehead Width</span>
+                    <span class="metric-value">${metrics.foreheadRatio}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Jawline Width</span>
+                    <span class="metric-value">${metrics.jawRatio}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Nose Width</span>
+                    <span class="metric-value">${metrics.noseRatio}</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">Eye Distance</span>
+                    <span class="metric-value">${metrics.eyeDistance}</span>
+                </div>
+            `;
+
+            resultsDiv.classList.add('active');
+        }
+
+        function reset() {
+            currentImage = null;
+            document.getElementById('imageContainer').style.display = 'none';
+            document.getElementById('buttonContainer').style.display = 'block';
+            document.getElementById('results').classList.remove('active');
+            document.getElementById('loading').classList.remove('active');
+            document.getElementById('photoInput').value = '';
+        }
+    </script>
+</body>
+</html>
