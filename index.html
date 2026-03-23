@@ -145,8 +145,16 @@
             display: block;
         }
 
-        .loading p {
+        .status {
             color: #888888;
+            margin-top: 10px;
+            font-size: 0.9em;
+        }
+
+        .error {
+            color: #ff4444;
+            margin-top: 10px;
+            font-size: 0.9em;
         }
 
         .button {
@@ -190,6 +198,8 @@
 
         <div class="loading" id="loading">
             <p>📸 Analyzing face...</p>
+            <p class="status" id="status">Loading FaceAPI...</p>
+            <p class="error" id="error"></p>
         </div>
 
         <div class="image-container" id="imageContainer" style="display: none;">
@@ -224,8 +234,12 @@
             const file = event.target.files[0];
             if (!file) return;
 
+            console.log('File selected:', file.name);
+            document.getElementById('error').textContent = '';
+
             const reader = new FileReader();
             reader.onload = async function(e) {
+                console.log('Image loaded');
                 currentImage = e.target.result;
                 document.getElementById('uploadedImage').src = currentImage;
                 document.getElementById('imageContainer').style.display = 'block';
@@ -233,48 +247,100 @@
                 document.getElementById('results').classList.remove('active');
                 document.getElementById('loading').classList.remove('active');
             };
+            reader.onerror = function(error) {
+                console.error('File reader error:', error);
+                document.getElementById('error').textContent = 'Error loading image. Please try again.';
+            };
             reader.readAsDataURL(file);
         }
 
         async function analyzeFace() {
-            if (!currentImage) return;
+            if (!currentImage) {
+                console.error('No image loaded');
+                return;
+            }
 
+            console.log('Starting face analysis...');
             document.getElementById('loading').classList.add('active');
             document.getElementById('buttonContainer').style.display = 'none';
+            document.getElementById('status').textContent = 'Loading FaceAPI models...';
+            document.getElementById('error').textContent = '';
 
             try {
-                // Load FaceAPI models
+                console.log('Checking if FaceAPI is loaded...');
+                if (typeof faceapi === 'undefined') {
+                    throw new Error('FaceAPI is not loaded. Please refresh the page.');
+                }
+                console.log('FaceAPI is loaded:', faceapi);
+
+                document.getElementById('status').textContent = 'Loading TinyFaceDetector...';
+                console.log('Loading TinyFaceDetector...');
                 await faceapi.nets.tinyFaceDetector.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+                console.log('TinyFaceDetector loaded');
+
+                document.getElementById('status').textContent = 'Loading FaceLandmark68Net...';
+                console.log('Loading FaceLandmark68Net...');
                 await faceapi.nets.faceLandmark68Net.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+                console.log('FaceLandmark68Net loaded');
+
+                document.getElementById('status').textContent = 'Loading FaceRecognitionNet...';
+                console.log('Loading FaceRecognitionNet...');
                 await faceapi.nets.faceRecognitionNet.loadFromUri('https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/');
+                console.log('FaceRecognitionNet loaded');
+
+                document.getElementById('status').textContent = 'Detecting face...';
+                console.log('Detecting face in image...');
 
                 // Analyze face
                 const img = new Image();
                 img.src = currentImage;
 
-                const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions())
-                    .withFaceLandmarks();
+                img.onload = async function() {
+                    console.log('Image loaded for analysis, dimensions:', img.width, 'x', img.height);
+                    console.log('Starting face detection...');
 
-                if (detections.length === 0) {
-                    alert('No face detected in the photo. Please upload a clear photo with a visible face.');
+                    const detections = await faceapi.detectAllFaces(img, new faceapi.TinyFaceDetectorOptions())
+                        .withFaceLandmarks();
+
+                    console.log('Detections:', detections.length);
+
+                    if (detections.length === 0) {
+                        document.getElementById('status').textContent = 'No face detected';
+                        document.getElementById('error').textContent = 'No face detected in the photo. Please upload a clear photo with a visible face.';
+                        document.getElementById('loading').classList.remove('active');
+                        document.getElementById('buttonContainer').style.display = 'block';
+                        return;
+                    }
+
+                    console.log('Face detected, calculating metrics...');
+                    const landmarks = detections[0].landmarks;
+                    console.log('Landmarks:', landmarks);
+
+                    // Calculate metrics
+                    const metrics = calculatePSLMetrics(landmarks);
+                    console.log('Metrics:', metrics);
+
+                    // Display results
+                    displayResults(metrics);
+
+                    document.getElementById('loading').classList.remove('active');
+                    console.log('Results displayed');
+
+                };
+
+                img.onerror = function(error) {
+                    console.error('Image load error:', error);
+                    document.getElementById('status').textContent = 'Error loading image';
+                    document.getElementById('error').textContent = 'Error loading image for analysis. Please try again.';
                     document.getElementById('loading').classList.remove('active');
                     document.getElementById('buttonContainer').style.display = 'block';
-                    return;
-                }
-
-                const landmarks = detections[0].landmarks;
-
-                // Calculate metrics
-                const metrics = calculatePSLMetrics(landmarks);
-
-                // Display results
-                displayResults(metrics);
-
-                document.getElementById('loading').classList.remove('active');
+                };
 
             } catch (error) {
-                console.error('Error analyzing face:', error);
-                alert('Error analyzing face. Please try again.');
+                console.error('Error in analyzeFace:', error);
+                console.error('Error stack:', error.stack);
+                document.getElementById('status').textContent = 'Error occurred';
+                document.getElementById('error').textContent = error.message;
                 document.getElementById('loading').classList.remove('active');
                 document.getElementById('buttonContainer').style.display = 'block';
             }
@@ -283,9 +349,13 @@
         function calculatePSLMetrics(landmarks) {
             const positions = landmarks.positions;
 
+            console.log('Positions:', positions);
+
             // Face shape analysis
             const faceWidth = positions[29][0] - positions[20][0]; // Left cheek to right cheek
             const faceHeight = positions[8][1] - positions[26][1]; // Top of head to chin
+
+            console.log('Face width:', faceWidth, 'Face height:', faceHeight);
 
             // Forehead width
             const foreheadWidth = positions[9][0] - positions[12][0];
@@ -304,6 +374,12 @@
             const foreheadRatio = foreheadWidth / faceWidth;
             const jawRatio = jawWidth / faceWidth;
             const noseRatio = noseWidth / faceWidth;
+
+            console.log('Face ratio:', faceRatio);
+            console.log('Forehead ratio:', foreheadRatio);
+            console.log('Jaw ratio:', jawRatio);
+            console.log('Nose ratio:', noseRatio);
+            console.log('Eye distance:', eyeDistance);
 
             // PSL Score calculation (0-100)
             let pslScore = 50;
@@ -330,6 +406,8 @@
 
             // Apply limits
             pslScore = Math.max(0, Math.min(100, pslScore));
+
+            console.log('PSL Score:', pslScore);
 
             return {
                 score: pslScore,
@@ -399,6 +477,8 @@
             document.getElementById('results').classList.remove('active');
             document.getElementById('loading').classList.remove('active');
             document.getElementById('photoInput').value = '';
+            document.getElementById('error').textContent = '';
+            console.log('Reset complete');
         }
     </script>
 </body>
