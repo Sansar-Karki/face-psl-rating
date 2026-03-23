@@ -263,7 +263,7 @@
             console.log('Starting face analysis...');
             document.getElementById('loading').classList.add('active');
             document.getElementById('buttonContainer').style.display = 'none';
-            document.getElementById('status').textContent = 'Loading FaceAPI models...';
+            document.getElementById('status').textContent = 'Loading FaceAPI...';
             document.getElementById('error').textContent = '';
 
             try {
@@ -314,7 +314,22 @@
 
                     console.log('Face detected, calculating metrics...');
                     const landmarks = detections[0].landmarks;
-                    console.log('Landmarks:', landmarks);
+                    console.log('Landmarks object:', landmarks);
+
+                    // Check if landmarks have positions
+                    if (!landmarks || !landmarks.positions) {
+                        console.error('Landmarks.positions is undefined');
+                        document.getElementById('status').textContent = 'Error processing landmarks';
+                        document.getElementById('error').textContent = 'Error processing face landmarks. Please try a clearer photo.';
+                        document.getElementById('loading').classList.remove('active');
+                        document.getElementById('buttonContainer').style.display = 'block';
+                        return;
+                    }
+
+                    const positions = landmarks.positions;
+                    console.log('Positions:', positions);
+                    console.log('Positions type:', typeof positions);
+                    console.log('Positions length:', positions.length);
 
                     // Calculate metrics
                     const metrics = calculatePSLMetrics(landmarks);
@@ -349,25 +364,83 @@
         function calculatePSLMetrics(landmarks) {
             const positions = landmarks.positions;
 
-            console.log('Positions:', positions);
+            console.log('=== Starting PSL Metrics Calculation ===');
+            console.log('Positions array:', positions);
+            console.log('Positions type:', typeof positions);
+
+            // Check if positions is an array
+            if (!Array.isArray(positions)) {
+                console.error('positions is not an array');
+                return {
+                    score: 0,
+                    error: 'Invalid landmark data'
+                };
+            }
+
+            console.log('Positions length:', positions.length);
+
+            // Check if we have enough landmarks
+            if (positions.length < 68) {
+                console.error('Not enough landmarks:', positions.length, 'expected 68');
+                return {
+                    score: 0,
+                    error: 'Incomplete face detection'
+                };
+            }
+
+            console.log('Positions[29]:', positions[29]);
+            console.log('Positions[20]:', positions[20]);
+            console.log('Positions[8]:', positions[8]);
+            console.log('Positions[26]:', positions[26]);
 
             // Face shape analysis
-            const faceWidth = positions[29][0] - positions[20][0]; // Left cheek to right cheek
-            const faceHeight = positions[8][1] - positions[26][1]; // Top of head to chin
+            const rightCheek = positions[29];
+            const leftCheek = positions[20];
+            const topOfHead = positions[8];
+            const chin = positions[26];
+
+            console.log('Right cheek:', rightCheek, 'Left cheek:', leftCheek);
+            console.log('Top of head:', topOfHead, 'Chin:', chin);
+
+            // Check if positions have x, y coordinates
+            if (!rightCheek || !leftCheek || !topOfHead || !chin) {
+                console.error('Missing position data');
+                return {
+                    score: 0,
+                    error: 'Missing position data'
+                };
+            }
+
+            const faceWidth = rightCheek.x - leftCheek.x;
+            const faceHeight = topOfHead.y - chin.y;
 
             console.log('Face width:', faceWidth, 'Face height:', faceHeight);
 
             // Forehead width
-            const foreheadWidth = positions[9][0] - positions[12][0];
+            const foreheadLeft = positions[9];
+            const foreheadRight = positions[12];
+            const foreheadWidth = foreheadRight.x - foreheadLeft.x;
 
             // Jawline width
-            const jawWidth = positions[1][0] - positions[14][0];
+            const jawLeft = positions[1];
+            const jawRight = positions[14];
+            const jawWidth = jawRight.x - jawLeft.x;
 
             // Nose width
-            const noseWidth = positions[31][0] - positions[35][0];
+            const noseLeft = positions[31];
+            const noseRight = positions[35];
+            const noseWidth = noseRight.x - noseLeft.x;
 
             // Eye distance
-            const eyeDistance = positions[36][0] - positions[39][0];
+            const eyeLeft = positions[36];
+            const eyeRight = positions[39];
+            const eyeDistance = eyeRight.x - eyeLeft.x;
+
+            console.log('Face width:', faceWidth, 'Face height:', faceHeight);
+            console.log('Forehead width:', foreheadWidth);
+            console.log('Jaw width:', jawWidth);
+            console.log('Nose width:', noseWidth);
+            console.log('Eye distance:', eyeDistance);
 
             // Calculate shape metrics
             const faceRatio = faceWidth / faceHeight;
@@ -385,24 +458,49 @@
             let pslScore = 50;
 
             // Face shape scoring
-            if (faceRatio > 0.6) pslScore += 5; // Wide face
-            else if (faceRatio < 0.45) pslScore += 3; // Narrow face
+            if (faceRatio > 0.6) {
+                pslScore += 5;
+                console.log('Wide face bonus: +5');
+            } else if (faceRatio < 0.45) {
+                pslScore += 3;
+                console.log('Narrow face bonus: +3');
+            }
 
             // Forehead scoring
-            if (foreheadRatio > 0.3) pslScore += 3; // High forehead
-            else if (foreheadRatio < 0.25) pslScore += 2; // Low forehead
+            if (foreheadRatio > 0.3) {
+                pslScore += 3;
+                console.log('High forehead bonus: +3');
+            } else if (foreheadRatio < 0.25) {
+                pslScore += 2;
+                console.log('Low forehead bonus: +2');
+            }
 
             // Jawline scoring
-            if (jawRatio > 0.38) pslScore += 5; // Defined jaw
-            else if (jawRatio < 0.32) pslScore -= 2; // Weak jaw
+            if (jawRatio > 0.38) {
+                pslScore += 5;
+                console.log('Defined jaw bonus: +5');
+            } else if (jawRatio < 0.32) {
+                pslScore -= 2;
+                console.log('Weak jaw penalty: -2');
+            }
 
             // Nose scoring
-            if (noseRatio > 0.08) pslScore += 3; // Defined nose
-            else if (noseRatio < 0.06) pslScore -= 1; // Small nose
+            if (noseRatio > 0.08) {
+                pslScore += 3;
+                console.log('Defined nose bonus: +3');
+            } else if (noseRatio < 0.06) {
+                pslScore -= 1;
+                console.log('Small nose penalty: -1');
+            }
 
             // Eye spacing scoring
-            if (eyeDistance > faceWidth * 0.18) pslScore += 2; // Wide eyes
-            else if (eyeDistance < faceWidth * 0.12) pslScore -= 1; // Close set
+            if (eyeDistance > faceWidth * 0.18) {
+                pslScore += 2;
+                console.log('Wide eyes bonus: +2');
+            } else if (eyeDistance < faceWidth * 0.12) {
+                pslScore -= 1;
+                console.log('Close-set eyes penalty: -1');
+            }
 
             // Apply limits
             pslScore = Math.max(0, Math.min(100, pslScore));
